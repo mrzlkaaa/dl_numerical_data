@@ -17,48 +17,74 @@ def split_dataset(df):
     df_val = df[df_len:]
     return df_train, df_val
 
-def drop_predicting_col(df, col_name):
-    labels = df.pop(col_name)
-    return df, labels
 
 
-# class Model:
-    # def __init__(self):
 
+class Abalone_dataset:
+    def __init__(self, df,  predict_col_name):
+        
+        self.df = df
+        # self.df_train, self.df_val = self.split_dataframe(split_frac)
+        self.predict_col_name = predict_col_name 
+
+    def drop_predicting_col(self, df):
+        df = df.copy()
+        labels = df.pop(self.predict_col_name)
+        return df, labels
+
+    def split_dataframe(self, frac):
+        df_val = self.df.sample(frac=frac, random_state=np.random.randint(low=1, high=2000+1))
+        df_train = self.df.drop(df_val.index)
+        return df_train, df_val
+
+    def dataframe_to_dataset(self, df, inputs=None):
+        df, labels = self.drop_predicting_col(df)
+        if inputs is not None:
+            df = df.loc[:, inputs]
+        ds = tf.data.Dataset.from_tensor_slices((df, labels))
+        return ds.shuffle(len(df))
+
+class Abalone_model:
+    BATCH_SIZE = 32
+    def __init__(self, train, val, input_shape):
+        self.norm = tf.keras.layers.Normalization(axis=-1)
+        self.train_ds = train.batch(self.BATCH_SIZE)
+        self.val_ds = val.batch(self.BATCH_SIZE)
+        self.input_shape = input_shape
+        # self.feature_ds()
+
+    #* applies numerical normalization
+    def feature_ds(self):
+        feature_train = self.train_ds.map(lambda x, y: x)
+        self.norm.adapt(feature_train)
+
+
+    def set_model(self):
+        model = tf.keras.Sequential([])
+        model.add(tf.keras.layers.InputLayer((self.input_shape,), batch_size=self.BATCH_SIZE))
+        model.add(self.norm)
+        model.add(tf.keras.layers.Dense(512))
+        model.add(tf.keras.layers.Dropout(0.2))
+        model.add(tf.keras.layers.Dense(256))
+        model.add(tf.keras.layers.Dropout(0.2))
+        model.add(tf.keras.layers.Dense(64))
+        model.add(tf.keras.layers.Dense(1))
+        model.compile(loss = tf.keras.losses.MeanAbsolutePercentageError(),
+                      optimizer = tf.keras.optimizers.Adam(0.1)
+                      )
+        # model(self.train_ds)
+        model.summary()
+        model.fit(self.train_ds, validation_data=self.val_ds, epochs=30)
+        return model
 
 if __name__ == "__main__":
 
     df = load_csv(url)
-    df_train, df_test = split_dataset(df)
-    df_train_data, df_train_labels = drop_predicting_col(df_train, "Age")
-    df_test_data, df_test_labels = drop_predicting_col(df_test, "Age")
+    ad_age = Abalone_dataset(df, "Age")
+    inputs = ["Length", "Diameter", "Height", "Whole weight"]
+    train_df, val_df = ad_age.split_dataframe(0.2)
+    train_ds_len = ad_age.dataframe_to_dataset(train_df, inputs)
+    val_ds_len = ad_age.dataframe_to_dataset(val_df, inputs)
 
-    #! make a class of function to exclude hardcoding
-    # norm = tf.keras.layers.Normalization()
-    # norm.adapt(df_train_data["Length"].to_numpy())
-    # norm_train = norm(df_train_data["Length"].to_numpy())
-    # norm_test = norm(df_test_data["Length"].to_numpy())
-    # print(df_train_data["Length"], len(norm_train))
-
-    # model = tf.keras.Sequential([])
-    # # model.add(norm)
-    # model.add(tf.keras.layers.Dense(512, activation="relu"))
-    # model.add(tf.keras.layers.Dropout(0.5))
-    # model.add(tf.keras.layers.Dense(256, activation="relu"))
-    # # model.add(tf.keras.layers.Dense(128, activation="relu"))
-    # model.add(tf.keras.layers.Dense(1))
-
-    # # model.summary()
-
-    # model.compile(loss = tf.keras.losses.MeanSquaredError(),
-    #             optimizer = tf.keras.optimizers.Adam(0.001),
-    #             metrics=["accuracy"])
-
-    # model.fit(norm_train, df_train_labels, epochs=25)
-    # predicted = model.predict(norm_test)
-    # print(predicted.shape)
-    # # for i in range(600, len(predicted)):
-    # #     print(predicted[i], df_val_labels.iloc[i])
-    # plt.scatter(predicted, df_test_labels.to_numpy())
-    # plt.savefig("0.png")
-
+    am = Abalone_model(train_ds_len, val_ds_len, len(inputs))
+    model = am.set_model()
